@@ -1,0 +1,673 @@
+<!-- Author: Noelia Doman
+ Date: 4/1/2026
+ Class: CIS 371 --> 
+ <!-- referenced:
+  https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/em
+  HTML & Css: The Complete Reference, Fifth Edition\
+  https://www.w3schools.com/howto/howto_css_loader.asp
+  https://www.w3schools.com/howto/howto_css_overlay.asp
+  https://developers.google.com/maps/documentation/javascript/add-google-map-wc-tut
+  -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Days Plan</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <!-- Firebase CDN -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+  <div class="bg-orbs">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+  <div class="grain"></div>
+
+  <div id="app">
+
+    <!-- ── NAV ── -->
+    <nav class="navbar" v-if="user">
+      <div class="nav-logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">Days Plan</span>
+      </div>
+      <div class="nav-actions">
+        <button class="nav-btn" @click="activeTab = 'plan'" :class="{active: activeTab==='plan'}">Today</button>
+        <button class="nav-btn" @click="activeTab = 'saved'" :class="{active: activeTab==='saved'}">Saved Plans</button>
+        <button class="nav-btn" @click="activeTab = 'community'" :class="{active: activeTab==='community'}">Community</button>
+        <div class="nav-user">
+          <span class="nav-email">{{ user.email.split('@')[0] }}</span>
+          <button class="btn-logout" @click="logout">Sign Out</button>
+        </div>
+      </div>
+    </nav>
+
+    <!--  AUTH SCREEN -->
+    <section class="auth-screen" v-if="!user">
+      <div class="auth-card">
+        <div class="auth-logo">
+          <span class="logo-icon">◈</span>
+          <span class="logo-text">Days Plan</span>
+        </div>
+        <p class="auth-tagline">Your day, shaped by the sky.</p>
+
+        <div class="auth-tabs">
+          <button :class="['auth-tab', {active: authMode==='login'}]" @click="authMode='login'">Sign In</button>
+          <button :class="['auth-tab', {active: authMode==='register'}]" @click="authMode='register'">Register</button>
+        </div>
+
+        <div class="auth-form">
+          <input class="auth-input" type="email" v-model="authEmail" placeholder="Email address" @keyup.enter="submitAuth" />
+          <input class="auth-input" type="password" v-model="authPassword" placeholder="Password" @keyup.enter="submitAuth" />
+          <p class="auth-error" v-if="authError">{{ authError }}</p>
+          <button class="btn-primary full-width" @click="submitAuth" :disabled="authLoading">
+            {{ authLoading ? 'Please wait...' : (authMode === 'login' ? 'Sign In' : 'Create Account') }}
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- MAIN APP (logged in) -->
+    <main class="app-main" v-if="user">
+
+      <!-- TODAY TAB -->
+      <div v-show="activeTab === 'plan'">
+
+        <!-- Hero -->
+        <section class="hero" v-if="!weather && !planLoading">
+          <div class="hero-content">
+            <h1 class="hero-title">What does <em>today</em><br/>have in store?</h1>
+            <p class="hero-sub">We will read the weather and find the perfect activities for you.</p>
+            <button class="btn-primary" @click="loadPlan" :disabled="planLoading">
+              <span class="btn-icon">⌖</span> Detect My Location
+            </button>
+            <p class="privacy-note">Location is used to fetch your local weather.</p>
+          </div>
+        </section>
+
+        <!-- Loading -->
+        <section class="loading-state" v-if="planLoading">
+          <div class="loader-wrap">
+            <div class="loader-ring"></div>
+            <p class="loader-text">{{ loaderText }}</p>
+          </div>
+        </section>
+
+        <!-- Error -->
+        <section class="error-state" v-if="planError && !planLoading">
+          <div class="error-wrap">
+            <span class="error-icon">⚠</span>
+            <p class="error-msg">{{ planError }}</p>
+            <button class="btn-secondary" @click="planError = null; weather = null">Try Again</button>
+          </div>
+        </section>
+
+        <!-- Results -->
+        <section class="results" v-if="weather && !planLoading && !planError">
+
+          <!-- Weather Card -->
+          <div class="weather-card">
+            <div class="weather-left">
+              <div class="weather-icon-large">{{ weather.emoji }}</div>
+              <div class="weather-temp-block">
+                <span class="weather-temp">{{ weather.temp }}°F</span>
+                <span class="weather-feels">Feels like {{ weather.feels }}°F</span>
+              </div>
+            </div>
+            <div class="weather-right">
+              <p class="weather-condition">{{ weather.condition }}</p>
+              <p class="weather-location">📍 {{ weather.city }}</p>
+              <div class="weather-details">
+                <div class="detail-pill"><span class="detail-label">Humidity</span><span class="detail-val">{{ weather.humidity }}%</span></div>
+                <div class="detail-pill"><span class="detail-label">Wind</span><span class="detail-val">{{ weather.wind }} mph</span></div>
+                <div class="detail-pill"><span class="detail-label">UV Index</span><span class="detail-val">—</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-label"><span>✦ Recommended for you today ✦</span></div>
+
+          <!-- Activity Cards -->
+          <div class="activities-grid">
+            <div class="activity-card" :class="act.type" v-for="(act, i) in activities" :key="i" :style="{animationDelay: i*80+'ms'}">
+              <div class="act-header">
+                <span class="act-emoji">{{ act.emoji }}</span>
+                <span class="act-badge" :class="act.type">{{ act.type === 'outdoor' ? '↗ Outdoor' : '⌂ Indoor' }}</span>
+              </div>
+              <h3 class="act-title">{{ act.title }}</h3>
+              <p class="act-desc">{{ act.description }}</p>
+              <div class="act-footer">
+                <span class="act-duration">⏱ {{ act.duration }}</span>
+                <div class="act-actions">
+                  <button class="btn-find-near" @click="openMap(act)">📍 Near Me</button>
+                  <button class="btn-save-act" @click="savePlan(act)" :disabled="savingId === act.title">
+                    {{ savingId === act.title ? '...' : '🔖 Save' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="refresh-row">
+            <button class="btn-secondary" @click="loadPlan">↺ Refresh Plan</button>
+          </div>
+
+        </section>
+      </div>
+
+      <!-- SAVED PLANS TAB -->
+      <div v-show="activeTab === 'saved'" class="tab-content">
+        <div class="tab-header">
+          <h2 class="tab-title">Your Saved Plans</h2>
+          <p class="tab-sub">Activities you have bookmarked for later.</p>
+        </div>
+
+        <div class="empty-state" v-if="savedPlans.length === 0">
+          <span class="empty-icon">🔖</span>
+          <p>No saved plans yet. Go to Today and save some activities!</p>
+        </div>
+
+        <div class="saved-grid" v-else>
+          <div class="saved-card" v-for="plan in savedPlans" :key="plan.id">
+            <div class="saved-card-header">
+              <span class="act-emoji">{{ plan.emoji }}</span>
+              <div class="saved-meta">
+                <span class="saved-badge" :class="plan.type">{{ plan.type }}</span>
+                <span class="saved-date">{{ formatDate(plan.savedAt) }}</span>
+              </div>
+            </div>
+            <h3 class="act-title">{{ plan.title }}</h3>
+            <p class="act-desc">{{ plan.description }}</p>
+
+            <!-- Edit name inline -->
+            <div class="edit-row" v-if="editingId === plan.id">
+              <input class="edit-input" v-model="editTitle" @keyup.enter="saveEdit(plan)" placeholder="New name..." />
+              <button class="btn-save-edit" @click="saveEdit(plan)">Save</button>
+              <button class="btn-cancel-edit" @click="editingId = null">Cancel</button>
+            </div>
+
+            <div class="saved-actions" v-else>
+              <button class="btn-find-near" @click="openMapFromSaved(plan)">📍 Near Me</button>
+              <button class="btn-edit" @click="startEdit(plan)">✏️ Rename</button>
+              <button class="btn-delete" @click="deletePlan(plan.id)">🗑 Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COMMUNITY TAB -->
+      <div v-show="activeTab === 'community'" class="tab-content">
+        <div class="tab-header">
+          <h2 class="tab-title">Community Picks</h2>
+          <p class="tab-sub">Activities shared by everyone. Upvote your favorites!</p>
+        </div>
+
+        <!-- Share form -->
+        <div class="share-card">
+          <h3 class="share-title">Share an Activity</h3>
+          <div class="share-form">
+            <input class="auth-input" v-model="newPick.title" placeholder="Activity name (e.g. Visit Belle Isle)" />
+            <input class="auth-input" v-model="newPick.description" placeholder="Why do you recommend it?" />
+            <div class="share-row">
+              <select class="auth-input select-input" v-model="newPick.type">
+                <option value="outdoor">Outdoor</option>
+                <option value="indoor">Indoor</option>
+              </select>
+              <input class="auth-input" v-model="newPick.emoji" placeholder="Emoji" maxlength="2" style="width:70px;text-align:center" />
+              <button class="btn-primary" @click="sharePick" :disabled="sharingPick">
+                {{ sharingPick ? '...' : 'Share' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="empty-state" v-if="communityPicks.length === 0">
+          <span class="empty-icon">🌍</span>
+          <p>No community picks yet. Be the first to share!</p>
+        </div>
+
+        <div class="community-grid" v-else>
+          <div class="community-card" v-for="pick in communityPicks" :key="pick.id">
+            <div class="act-header">
+              <span class="act-emoji">{{ pick.emoji }}</span>
+              <span class="act-badge" :class="pick.type">{{ pick.type }}</span>
+            </div>
+            <h3 class="act-title">{{ pick.title }}</h3>
+            <p class="act-desc">{{ pick.description }}</p>
+            <div class="community-footer">
+              <span class="community-author">by {{ pick.authorName }}</span>
+              <button class="btn-upvote" @click="upvote(pick)" :class="{voted: pick.votedBy && pick.votedBy.includes(user.uid)}">
+                ▲ {{ pick.votes || 0 }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- MAP MODAL -->
+    <div class="map-modal" v-if="mapOpen">
+      <div class="map-modal-backdrop" @click="closeMap"></div>
+      <div class="map-modal-card">
+        <div class="map-modal-header">
+          <div class="map-modal-title-wrap">
+            <span class="map-modal-emoji">{{ mapActivity.emoji }}</span>
+            <div>
+              <h2 class="map-modal-title">{{ mapActivity.title }}</h2>
+              <p class="map-modal-sub">Near your location</p>
+            </div>
+          </div>
+          <button class="map-close-btn" @click="closeMap">✕</button>
+        </div>
+        <div class="map-embed-wrap">
+          <iframe class="map-iframe" :src="mapSrc" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </div>
+        <div class="map-modal-footer">
+          <a class="btn-maps-link" :href="mapLink" target="_blank">🗺 Open in Google Maps</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" v-if="toast" :class="toast.type">{{ toast.msg }}</div>
+
+  </div><!-- end #app -->
+
+  <footer class="footer">
+    <p>Days Plan &nbsp;·&nbsp; Powered by OpenWeatherMap &amp; Google Maps</p>
+  </footer>
+
+  <script>
+  // Firebase init 
+  const firebaseConfig = {
+    apiKey: "AIzaSyBP9Jm_t_--l8g1sKWld9pefv_NIxZKigE",
+    authDomain: "daysplan-e2e6e.firebaseapp.com",
+    projectId: "daysplan-e2e6e",
+    storageBucket: "daysplan-e2e6e.firebasestorage.app",
+    messagingSenderId: "460527094205",
+    appId: "1:460527094205:web:0343be46b4525bff9dead4"
+  };
+  firebase.initializeApp(firebaseConfig);
+  const auth = firebase.auth();
+  const db   = firebase.firestore();
+
+  // Constants
+  const OWM_KEY  = '67cd66468ef30c43f5829b114b27c686';
+  const MAPS_KEY = 'AIzaSyAYs4M1PYI7xEEksz0Y3Z0YYCQd-sRHPps';
+
+  const ACTIVITIES = {
+    sunny: [
+      { title: 'Visit a Local Park', description: 'Perfect sunny weather to explore green spaces and soak up the rays.', type: 'outdoor', emoji: '🌳', duration: '1-2 hrs' },
+      { title: 'Go for a Bike Ride', description: 'Clear skies make today ideal for cycling through your neighborhood or a trail.', type: 'outdoor', emoji: '🚴', duration: '1-3 hrs' },
+      { title: 'Outdoor Farmers Market', description: 'Stroll a local market and pick up fresh produce while enjoying the sunshine.', type: 'outdoor', emoji: '🍎', duration: '1-2 hrs' },
+      { title: 'Have a Picnic', description: 'Pack some snacks and head to a scenic spot — sunshine this good is meant for outside.', type: 'outdoor', emoji: '🧺', duration: '2-3 hrs' },
+      { title: 'Go Hiking', description: 'Hit a nearby trail and enjoy nature at its best on a beautiful clear day.', type: 'outdoor', emoji: '🥾', duration: '2-4 hrs' },
+      { title: 'Outdoor Photography', description: 'Great light today — grab your phone or camera and capture your surroundings.', type: 'outdoor', emoji: '📸', duration: '1-2 hrs' },
+      { title: 'Visit a Botanical Garden', description: 'Flowers and plants look their best in bright sunshine — a perfect leisurely outing.', type: 'outdoor', emoji: '🌸', duration: '2-3 hrs' },
+      { title: 'Play Frisbee or Soccer', description: 'Round up friends for a casual game in the park on this gorgeous day.', type: 'outdoor', emoji: '⚽', duration: '1-2 hrs' },
+    ],
+    cloudy: [
+      { title: 'Visit a Coffee Shop', description: 'Overcast skies are made for a cozy corner seat and a warm drink.', type: 'indoor', emoji: '☕', duration: '1-2 hrs' },
+      { title: 'Explore a Museum', description: 'A cloudy day is the perfect excuse to dive into local history, art, or science.', type: 'indoor', emoji: '🏛', duration: '2-3 hrs' },
+      { title: 'Go Window Shopping', description: 'Mild temps and cloud cover make strolling through shops surprisingly pleasant.', type: 'outdoor', emoji: '🛍', duration: '1-3 hrs' },
+      { title: 'Take a Scenic Drive', description: 'Soft cloud light is great for sightseeing with no harsh glare.', type: 'outdoor', emoji: '🚗', duration: '1-2 hrs' },
+      { title: 'Try a New Recipe', description: 'Stay in and experiment in the kitchen.. comfort food season never ends.', type: 'indoor', emoji: '🍳', duration: '1-2 hrs' },
+      { title: 'Visit a Local Gallery', description: 'Support local artists and spend an afternoon appreciating creativity.', type: 'indoor', emoji: '🎨', duration: '1-2 hrs' },
+      { title: 'Go for a Walk', description: 'Cool cloudy weather is actually perfect for a long comfortable walk.', type: 'outdoor', emoji: '🚶', duration: '30-60 min' },
+      { title: 'Start a New Book', description: 'Grey skies outside make for perfect reading-inside weather.', type: 'indoor', emoji: '📚', duration: 'All day' },
+    ],
+    rainy: [
+      { title: 'Movie Marathon', description: 'Rain on the window is the best soundtrack.. queue up that watchlist.', type: 'indoor', emoji: '🎬', duration: 'All day' },
+      { title: 'Visit a Bookstore', description: 'Browse shelves and find your next great read while staying dry and cozy.', type: 'indoor', emoji: '📖', duration: '1-2 hrs' },
+      { title: 'Try an Escape Room', description: 'Rainy days are perfect for puzzles.. gather friends and test your wits.', type: 'indoor', emoji: '🔐', duration: '1-2 hrs' },
+      { title: 'Cook a Comfort Meal', description: 'Slow-cook something hearty today.. soup, stew, or homemade pasta.', type: 'indoor', emoji: '🍲', duration: '2-3 hrs' },
+      { title: 'Visit an Aquarium', description: 'Underwater worlds are extra magical when it is raining outside.', type: 'indoor', emoji: '🐠', duration: '2-3 hrs' },
+      { title: 'Board Games Night', description: 'Pull out the board games and have a fun competitive evening indoors.', type: 'indoor', emoji: '🎲', duration: '2-4 hrs' },
+      { title: 'Indoor Rock Climbing', description: 'Get a great workout at a local climbing gym regardless of the weather.', type: 'indoor', emoji: '🧗', duration: '1-2 hrs' },
+      { title: 'Art or Craft Project', description: 'Channel the rainy-day mood into something creative you have been putting off.', type: 'indoor', emoji: '🎨', duration: '2-3 hrs' },
+    ],
+    snow: [
+      { title: 'Go Sledding', description: 'Fresh snow means it is time to find the best hill in town.', type: 'outdoor', emoji: '🛷', duration: '1-2 hrs' },
+      { title: 'Build a Snowman', description: 'Classic winter fun.. bundle up and get creative with the snow outside.', type: 'outdoor', emoji: '⛄', duration: '1 hr' },
+      { title: 'Hot Cocoa and Relax', description: 'Stay warm inside with a hot drink and enjoy watching the snow fall.', type: 'indoor', emoji: '🍫', duration: 'All day' },
+      { title: 'Visit a Skating Rink', description: 'Snow days and ice skating go hand in hand.. lace up and glide.', type: 'outdoor', emoji: '⛸', duration: '1-2 hrs' },
+      { title: 'Bake Something Warm', description: 'Cookies, bread, or a pie.. the oven keeps the house warm and smelling great.', type: 'indoor', emoji: '🍪', duration: '2-3 hrs' },
+      { title: 'Indoor Movie Day', description: 'A snowy day outside is the coziest backdrop for a full movie day in.', type: 'indoor', emoji: '🎥', duration: 'All day' },
+      { title: 'Snowshoeing or Ski', description: 'Fresh snow is the best time to get out on snowshoes or skis if trails are open.', type: 'outdoor', emoji: '⛷', duration: '2-4 hrs' },
+      { title: 'Puzzle Day', description: 'Set up a big jigsaw puzzle and work on it all day by a warm window.', type: 'indoor', emoji: '🧩', duration: 'All day' },
+    ],
+    storm: [
+      { title: 'Stay In and Stream', description: 'Thunderstorms are a cue to stay safe inside and binge something great.', type: 'indoor', emoji: '⛈', duration: 'All day' },
+      { title: 'Deep Clean Your Space', description: 'Productive storm day.. blast music and get your space spotless.', type: 'indoor', emoji: '🧹', duration: '2-3 hrs' },
+      { title: 'Online Gaming Session', description: 'Perfect excuse for a long guilt-free gaming session with friends online.', type: 'indoor', emoji: '🎮', duration: '2-4 hrs' },
+      { title: 'Journal or Write', description: 'Storms are oddly inspiring.. put your thoughts, ideas, or stories on paper.', type: 'indoor', emoji: '✍', duration: '1-2 hrs' },
+      { title: 'Learn Something New', description: 'Take a free online course or tutorials on a skill you have wanted to pick up.', type: 'indoor', emoji: '💻', duration: '2-4 hrs' },
+      { title: 'Cook an Elaborate Meal', description: 'Stuck inside? Make the most of it with an ambitious recipe.', type: 'indoor', emoji: '👨', duration: '2-3 hrs' },
+    ],
+    indoor: [
+      { title: 'Visit a Cafe', description: 'Foggy or misty days call for a warm drink and a cozy local spot.', type: 'indoor', emoji: '☕', duration: '1-2 hrs' },
+      { title: 'Go to the Library', description: 'A quiet, free, and welcoming place to spend a grey atmospheric day.', type: 'indoor', emoji: '📚', duration: '1-3 hrs' },
+      { title: 'Try Indoor Yoga', description: 'Low-visibility weather is perfect for turning inward with a calming yoga session.', type: 'indoor', emoji: '🧘', duration: '1 hr' },
+      { title: 'Visit a Mall', description: 'Browse, window-shop, grab a bite.. malls are underrated on hazy days.', type: 'indoor', emoji: '🛍', duration: '2-3 hrs' },
+      { title: 'Watch a Documentary', description: 'Atmospheric days pair perfectly with an eye-opening documentary.', type: 'indoor', emoji: '🎬', duration: '1-2 hrs' },
+      { title: 'Meal Prep for the Week', description: 'Use this low-energy weather day wisely and set yourself up for a great week.', type: 'indoor', emoji: '🥗', duration: '2-3 hrs' },
+    ],
+  };
+
+  const MAP_QUERIES = {
+    'Visit a Local Park': 'parks', 'Go for a Bike Ride': 'bike trails',
+    'Outdoor Farmers Market': 'farmers market', 'Have a Picnic': 'parks picnic area',
+    'Go Hiking': 'hiking trails', 'Outdoor Photography': 'scenic viewpoints',
+    'Visit a Botanical Garden': 'botanical garden', 'Play Frisbee or Soccer': 'sports fields',
+    'Visit a Coffee Shop': 'coffee shops', 'Explore a Museum': 'museums',
+    'Go Window Shopping': 'shopping centers', 'Take a Scenic Drive': 'scenic routes',
+    'Try a New Recipe': 'grocery stores', 'Visit a Local Gallery': 'art galleries',
+    'Go for a Walk': 'walking trails parks', 'Start a New Book': 'bookstores libraries',
+    'Movie Marathon': 'movie theaters', 'Visit a Bookstore': 'bookstores',
+    'Try an Escape Room': 'escape rooms', 'Cook a Comfort Meal': 'grocery stores',
+    'Visit an Aquarium': 'aquarium', 'Board Games Night': 'board game cafes',
+    'Indoor Rock Climbing': 'rock climbing gym', 'Art or Craft Project': 'art supply stores',
+    'Go Sledding': 'sledding hills', 'Build a Snowman': 'parks',
+    'Hot Cocoa and Relax': 'cafes coffee shops', 'Visit a Skating Rink': 'ice skating rink',
+    'Bake Something Warm': 'bakery grocery stores', 'Indoor Movie Day': 'movie theaters',
+    'Snowshoeing or Ski': 'ski resort', 'Puzzle Day': 'toy stores games',
+    'Stay In and Stream': 'coffee shops', 'Deep Clean Your Space': 'cleaning supply stores',
+    'Online Gaming Session': 'gaming cafes', 'Journal or Write': 'cafes stationery',
+    'Learn Something New': 'libraries', 'Cook an Elaborate Meal': 'specialty grocery stores',
+    'Visit a Cafe': 'cafes coffee shops', 'Go to the Library': 'libraries',
+    'Try Indoor Yoga': 'yoga studios', 'Visit a Mall': 'shopping mall',
+    'Watch a Documentary': 'movie theaters', 'Meal Prep for the Week': 'grocery stores',
+  };
+
+  function interpretOWM(id, icon) {
+    const night = icon && icon.endsWith('n');
+    if (id === 800) return { emoji: night ? '🌙' : '☀', type: 'sunny' };
+    if (id <= 802)  return { emoji: '⛅', type: 'cloudy' };
+    if (id <= 804)  return { emoji: '☁', type: 'cloudy' };
+    if (id < 300)   return { emoji: '⛈', type: 'storm' };
+    if (id < 400)   return { emoji: '🌦', type: 'rainy' };
+    if (id < 600)   return { emoji: '🌧', type: 'rainy' };
+    if (id < 700)   return { emoji: '❄', type: 'snow' };
+    if (id < 800)   return { emoji: '🌫', type: 'indoor' };
+    return { emoji: '🌡', type: 'indoor' };
+  }
+
+  // Vue App
+  const { createApp, ref, computed, onMounted, watch } = Vue;
+
+  createApp({
+    setup() {
+      // Auth state
+      const user        = ref(null);
+      const authMode    = ref('login');
+      const authEmail   = ref('');
+      const authPassword= ref('');
+      const authError   = ref('');
+      const authLoading = ref(false);
+
+      // App state
+      const activeTab   = ref('plan');
+
+      // Plan/weather
+      const weather     = ref(null);
+      const activities  = ref([]);
+      const planLoading = ref(false);
+      const planError   = ref(null);
+      const loaderText  = ref('Detecting your location...');
+      const savingId    = ref(null);
+      const userLat     = ref(null);
+      const userLon     = ref(null);
+
+      // Saved plans (private)
+      const savedPlans  = ref([]);
+      const editingId   = ref(null);
+      const editTitle   = ref('');
+
+      // Community picks (shared)
+      const communityPicks = ref([]);
+      const newPick     = ref({ title: '', description: '', type: 'outdoor', emoji: '🌟' });
+      const sharingPick = ref(false);
+
+      // Map
+      const mapOpen     = ref(false);
+      const mapActivity = ref({});
+      const mapSrc      = ref('');
+      const mapLink     = ref('');
+
+      // Toast
+      const toast       = ref(null);
+
+      // Auth
+      function submitAuth() {
+        authError.value = '';
+        authLoading.value = true;
+        const fn = authMode.value === 'login'
+          ? auth.signInWithEmailAndPassword(authEmail.value, authPassword.value)
+          : auth.createUserWithEmailAndPassword(authEmail.value, authPassword.value);
+        fn.catch(e => { authError.value = e.message; authLoading.value = false; });
+      }
+
+      function logout() {
+        auth.signOut();
+        weather.value = null;
+        activities.value = [];
+        savedPlans.value = [];
+        communityPicks.value = [];
+        activeTab.value = 'plan';
+      }
+
+      // Weather + Plan
+      async function loadPlan() {
+        planLoading.value = true;
+        planError.value = null;
+        weather.value = null;
+
+        try {
+          loaderText.value = 'Detecting your location...';
+          const pos = await new Promise((res, rej) =>
+            navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000 })
+          );
+          userLat.value = pos.coords.latitude;
+          userLon.value = pos.coords.longitude;
+
+          loaderText.value = 'Reading the skies...';
+          const r = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${userLat.value}&lon=${userLon.value}&units=imperial&appid=${OWM_KEY}`);
+          if (!r.ok) throw new Error('Weather fetch failed');
+          const d = await r.json();
+
+          const interp = interpretOWM(d.weather[0].id, d.weather[0].icon);
+          const label  = d.weather[0].description.replace(/\b\w/g, c => c.toUpperCase());
+
+          weather.value = {
+            emoji: interp.emoji, type: interp.type,
+            condition: label,
+            temp: Math.round(d.main.temp),
+            feels: Math.round(d.main.feels_like),
+            humidity: d.main.humidity,
+            wind: Math.round(d.wind.speed),
+            city: `${d.name}${d.sys?.country ? ', ' + d.sys.country : ''}`
+          };
+          document.body.dataset.weatherType = interp.type;
+
+          loaderText.value = 'Building your day...';
+          const pool = ACTIVITIES[interp.type] || ACTIVITIES['indoor'];
+          activities.value = [...pool].sort(() => Math.random() - 0.5).slice(0, 6);
+
+        } catch (e) {
+          planError.value = e.message.includes('denied')
+            ? 'Location access denied. Please allow location and try again.'
+            : 'Failed to load weather. Please try again.';
+        } finally {
+          planLoading.value = false;
+        }
+      }
+
+      // Save plan 
+      async function savePlan(act) {
+        if (!user.value) return;
+        savingId.value = act.title;
+        try {
+          await db.collection('users').doc(user.value.uid).collection('savedPlans').add({
+            ...act,
+            savedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            weather: weather.value?.condition || '',
+            city: weather.value?.city || ''
+          });
+          showToast('Plan saved!', 'success');
+        } catch (e) {
+          showToast('Could not save. Try again.', 'error');
+        } finally {
+          savingId.value = null;
+        }
+      }
+
+      // Load saved plans
+      function loadSavedPlans() {
+        if (!user.value) return;
+        db.collection('users').doc(user.value.uid).collection('savedPlans')
+          .orderBy('savedAt', 'desc')
+          .onSnapshot(snap => {
+            savedPlans.value = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          });
+      }
+
+      // Delete saved plan
+      async function deletePlan(id) {
+        await db.collection('users').doc(user.value.uid).collection('savedPlans').doc(id).delete();
+        showToast('Plan deleted.', 'success');
+      }
+
+      // Edit saved plan title 
+      function startEdit(plan) {
+        editingId.value = plan.id;
+        editTitle.value = plan.title;
+      }
+
+      async function saveEdit(plan) {
+        if (!editTitle.value.trim()) return;
+        await db.collection('users').doc(user.value.uid).collection('savedPlans').doc(plan.id).update({ title: editTitle.value.trim() });
+        editingId.value = null;
+        showToast('Plan renamed!', 'success');
+      }
+
+      // Community picks
+      function loadCommunity() {
+        db.collection('communityPicks')
+          .orderBy('votes', 'desc')
+          .onSnapshot(snap => {
+            communityPicks.value = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          });
+      }
+
+      async function sharePick() {
+        if (!newPick.value.title.trim() || !newPick.value.description.trim()) {
+          showToast('Please fill in all fields.', 'error'); return;
+        }
+        sharingPick.value = true;
+        try {
+          await db.collection('communityPicks').add({
+            title: newPick.value.title.trim(),
+            description: newPick.value.description.trim(),
+            type: newPick.value.type,
+            emoji: newPick.value.emoji || '🌟',
+            authorName: user.value.email.split('@')[0],
+            authorId: user.value.uid,
+            votes: 0,
+            votedBy: [],
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          newPick.value = { title: '', description: '', type: 'outdoor', emoji: '🌟' };
+          showToast('Activity shared!', 'success');
+        } catch (e) {
+          showToast('Could not share. Try again.', 'error');
+        } finally {
+          sharingPick.value = false;
+        }
+      }
+
+      async function upvote(pick) {
+        const uid = user.value.uid;
+        const ref = db.collection('communityPicks').doc(pick.id);
+        const voted = pick.votedBy && pick.votedBy.includes(uid);
+        await ref.update({
+          votes: firebase.firestore.FieldValue.increment(voted ? -1 : 1),
+          votedBy: voted
+            ? firebase.firestore.FieldValue.arrayRemove(uid)
+            : firebase.firestore.FieldValue.arrayUnion(uid)
+        });
+      }
+
+      // Map
+      function openMap(act) {
+        const query = MAP_QUERIES[act.title] || act.title;
+        mapActivity.value = act;
+        mapSrc.value  = `https://www.google.com/maps/embed/v1/search?key=${MAPS_KEY}&q=${encodeURIComponent(query)}&center=${userLat.value},${userLon.value}&zoom=13`;
+        mapLink.value = `https://www.google.com/maps/search/${encodeURIComponent(query)}/@${userLat.value},${userLon.value},13z`;
+        mapOpen.value = true;
+        document.body.style.overflow = 'hidden';
+      }
+
+      function openMapFromSaved(plan) {
+        if (!userLat.value) { showToast('Go to Today tab first to detect your location.', 'error'); return; }
+        openMap(plan);
+      }
+
+      function closeMap() {
+        mapOpen.value = false;
+        mapSrc.value = '';
+        document.body.style.overflow = '';
+      }
+
+      // Toast
+      function showToast(msg, type = 'success') {
+        toast.value = { msg, type };
+        setTimeout(() => toast.value = null, 3000);
+      }
+
+      // Helpers
+      function formatDate(ts) {
+        if (!ts) return '';
+        const d = ts.toDate ? ts.toDate() : new Date(ts);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
+
+      // Lifecycle
+      onMounted(() => {
+        auth.onAuthStateChanged(u => {
+          user.value = u;
+          authLoading.value = false;
+          if (u) {
+            loadSavedPlans();
+            loadCommunity();
+          }
+        });
+
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMap(); });
+      });
+
+      return {
+        user, authMode, authEmail, authPassword, authError, authLoading, submitAuth, logout,
+        activeTab,
+        weather, activities, planLoading, planError, loaderText, savingId, loadPlan, savePlan,
+        savedPlans, editingId, editTitle, deletePlan, startEdit, saveEdit,
+        communityPicks, newPick, sharingPick, sharePick, upvote,
+        mapOpen, mapActivity, mapSrc, mapLink, openMap, openMapFromSaved, closeMap,
+        toast, formatDate
+      };
+    }
+  }).mount('#app');
+  </script>
+</body>
+</html>
